@@ -5,8 +5,80 @@ __metadata:
   version: 8
   cacheKey: 10c0
 
-"ts-unchained-wallet@workspace:.":
+"@noble/ed25519@npm:^2.2.3":
+  version: 2.2.3
+  resolution: "@noble/ed25519@npm:2.2.3"
+  checksum: 10c0/39d7ab81e520c7393e9356bde12d9a7a944b3cb6b97676125989d23217716c295ccc6e3a899bf57b9e10fe4409cc0092f6f15266a4b66ee9a9060690b873955f
+  languageName: node
+  linkType: hard
+
+"@scure/base@npm:^1.2.4":
+  version: 1.2.4
+  resolution: "@scure/base@npm:1.2.4"
+  checksum: 10c0/469c8aee80d6d6973e1aac6184befa04568f1b4016e40c889025f4a721575db9c1ca0c2ead80613896cce929392740322a18da585a427f157157e797dc0a42a9
+  languageName: node
+  linkType: hard
+
+"@timeleap/sia@npm:^2.1.0":
+  version: 2.1.0
+  resolution: "@timeleap/sia@npm:2.1.0"
+  dependencies:
+    utfz-lib: "npm:^0.2.0"
+  checksum: 10c0/45441acde53024e91c93fe3f050f4ef44193c71bff8ee4bfb0da81f41ec098cc46f1c5071617cfff2b6a8f54bfe93a788ab8a3da3583cdb0d21956d1669a9d77
+  languageName: node
+  linkType: hard
+
+"@types/node@npm:^22.10.7":
+  version: 22.10.7
+  resolution: "@types/node@npm:22.10.7"
+  dependencies:
+    undici-types: "npm:~6.20.0"
+  checksum: 10c0/c941b4689dfc4044b64a5f601306cbcb0c7210be853ba378a5dd44137898c45accedd796ee002ad9407024cac7ecaf5049304951cb1d80ce3d7cebbbae56f20e
+  languageName: node
+  linkType: hard
+
+"@timeleap/unchained-client@workspace:.":
   version: 0.0.0-use.local
-  resolution: "ts-unchained-wallet@workspace:."
+  resolution: "@timeleap/unchained-client@workspace:."
+  dependencies:
+    "@noble/ed25519": "npm:^2.2.3"
+    "@scure/base": "npm:^1.2.4"
+    "@timeleap/sia": "npm:^2.1.0"
+    "@types/node": "npm:^22.10.7"
+    typescript: "npm:^5.7.3"
   languageName: unknown
   linkType: soft
+
+"typescript@npm:^5.7.3":
+  version: 5.7.3
+  resolution: "typescript@npm:5.7.3"
+  bin:
+    tsc: bin/tsc
+    tsserver: bin/tsserver
+  checksum: 10c0/b7580d716cf1824736cc6e628ab4cd8b51877408ba2be0869d2866da35ef8366dd6ae9eb9d0851470a39be17cbd61df1126f9e211d8799d764ea7431d5435afa
+  languageName: node
+  linkType: hard
+
+"typescript@patch:typescript@npm%3A^5.7.3#optional!builtin<compat/typescript>":
+  version: 5.7.3
+  resolution: "typescript@patch:typescript@npm%3A5.7.3#optional!builtin<compat/typescript>::version=5.7.3&hash=5786d5"
+  bin:
+    tsc: bin/tsc
+    tsserver: bin/tsserver
+  checksum: 10c0/6fd7e0ed3bf23a81246878c613423730c40e8bdbfec4c6e4d7bf1b847cbb39076e56ad5f50aa9d7ebd89877999abaee216002d3f2818885e41c907caaa192cc4
+  languageName: node
+  linkType: hard
+
+"undici-types@npm:~6.20.0":
+  version: 6.20.0
+  resolution: "undici-types@npm:6.20.0"
+  checksum: 10c0/68e659a98898d6a836a9a59e6adf14a5d799707f5ea629433e025ac90d239f75e408e2e5ff086afc3cace26f8b26ee52155293564593fbb4a2f666af57fc59bf
+  languageName: node
+  linkType: hard
+
+"utfz-lib@npm:^0.2.0":
+  version: 0.2.0
+  resolution: "utfz-lib@npm:0.2.0"
+  checksum: 10c0/fde927e2d574b76f7fdd046cc87312b52998ecd167178d0fef8129079348aff6a04264594224b42695701325db6508bd372974a18a110d8fa397eeab8fffcb87
+  languageName: node
+  linkType: hard
