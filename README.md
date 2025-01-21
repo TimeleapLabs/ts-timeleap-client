@@ -13,7 +13,7 @@ console.log(wallet.encode())
 ```TypeScript
 import { Client } from "@timeleap/unchained-client"
 
-const client = Client.connect(wallet, unchainedBrokerURI)
+const client = await Client.connect(wallet, unchainedBrokerURI)
 const response = await client.send(rpcRequest)
 ```
 
