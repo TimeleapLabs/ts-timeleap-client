@@ -7,7 +7,7 @@ This library provides the following classes:
 import { Wallet } from "@timeleap/unchained-client"
 
 const wallet = await Wallet.random()
-console.log(wallet.encode())
+console.log(wallet.toBase58())
 ```
 
 ```TypeScript
