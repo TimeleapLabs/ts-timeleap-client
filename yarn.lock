@@ -28,9 +28,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@timeleap/unchained-client@workspace:.":
+"@timeleap/client@workspace:.":
   version: 0.0.0-use.local
-  resolution: "@timeleap/unchained-client@workspace:."
+  resolution: "@timeleap/client@workspace:."
   dependencies:
     "@noble/ed25519": "npm:^2.2.3"
     "@scure/base": "npm:^1.2.4"
