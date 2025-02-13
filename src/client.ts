@@ -4,8 +4,15 @@ import { base58, base64 } from "@scure/base";
 import * as ed from "@noble/ed25519";
 import { equal } from "./lib/util/uint8array.js";
 import { Function } from "./function.js";
-import type { Broker, FunctionRef, PromiseCallbacks } from "./types.js";
 import { OpCodes } from "./lib/opcodes.js";
+
+import type {
+  Broker,
+  ErrorCallback,
+  FunctionRef,
+  MessageCallback,
+  PromiseCallbacks,
+} from "./types.js";
 
 export class Client {
   private wallet: Wallet;
@@ -13,6 +20,8 @@ export class Client {
   private queue: Map<string, PromiseCallbacks> = new Map();
   private brokerPublicKey: Uint8Array;
   private textDecoder = new TextDecoder();
+  private eventHandlers: Map<string, MessageCallback[]> = new Map();
+  private errorHandlers: ErrorCallback[] = [];
 
   constructor(wallet: Wallet, broker: Broker) {
     this.wallet = wallet;
@@ -28,9 +37,18 @@ export class Client {
     const opcode = sia.readByteArrayN(1);
 
     if (opcode[0] === OpCodes.Error) {
-      const err = this.textDecoder.decode(buf.subarray(1));
-      // Todo: accept a error event handler
-      throw new Error(err);
+      const errText = this.textDecoder.decode(buf.subarray(1));
+      const err = new Error(errText);
+
+      if (this.errorHandlers.length === 0) {
+        throw err;
+      }
+
+      for (const handler of this.errorHandlers) {
+        handler(err);
+      }
+
+      return;
     }
 
     if (opcode[0] === OpCodes.RPCResponse) {
@@ -92,6 +110,43 @@ export class Client {
 
   method(ref: FunctionRef) {
     return new Function(this, ref);
+  }
+
+  subscribeToErrors(handler: ErrorCallback) {
+    this.errorHandlers.push(handler);
+  }
+
+  unsubsribeFromErrors(handler: ErrorCallback) {
+    const index = this.errorHandlers.indexOf(handler);
+    if (index !== -1) {
+      this.errorHandlers.splice(index, 1);
+    }
+  }
+
+  subscribe(event: string, handler: MessageCallback) {
+    // TODO: Send subscribe opcode to broker
+    const handlers = this.eventHandlers.get(event) || [];
+    handlers.push(handler);
+    this.eventHandlers.set(event, handlers);
+  }
+
+  unsubsribe(event: string, handler: MessageCallback) {
+    // TODO: Send unsubscribe opcode to broker
+    const handlers = this.eventHandlers.get(event) || [];
+    const index = handlers.indexOf(handler);
+    if (index !== -1) {
+      handlers.splice(index, 1);
+    }
+  }
+
+  unsubsribeAll(event: string) {
+    // TODO: Send unsubscribe opcode to broker
+    this.eventHandlers.delete(event);
+  }
+
+  unsubsribeAllEvents() {
+    // TODO: Send unsubscribe opcode to broker
+    this.eventHandlers.clear();
   }
 
   close() {
