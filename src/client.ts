@@ -5,6 +5,7 @@ import * as ed from "@noble/ed25519";
 import { equal } from "./lib/util/uint8array.js";
 import { Function } from "./function.js";
 import type { Broker, FunctionRef, PromiseCallbacks } from "./types.js";
+import { OpCodes } from "./lib/opcodes.js";
 
 export class Client {
   private wallet: Wallet;
@@ -25,36 +26,42 @@ export class Client {
     const buf = new Uint8Array(await data.arrayBuffer());
     const sia = new Sia(buf);
     const opcode = sia.readByteArrayN(1);
-    const uuidBytes = sia.readByteArray8();
-    const uuid = base64.encode(uuidBytes);
-    const promise = this.queue.get(uuid);
 
-    if (!promise) {
-      return;
-    }
-
-    if (opcode[0] === 1) {
+    if (opcode[0] === OpCodes.Error) {
       const err = this.textDecoder.decode(buf.subarray(1));
-      promise.reject(new Error(err));
+      // Todo: accept a error event handler
+      throw new Error(err);
     }
 
-    const auth = new Sia(buf.subarray(-96));
-    const signer = auth.readByteArrayN(32);
-    const signature = auth.readByteArrayN(64);
+    if (opcode[0] === OpCodes.RPCResponse) {
+      const uuidBytes = sia.readByteArray8();
+      const uuid = base64.encode(uuidBytes);
+      const promise = this.queue.get(uuid);
 
-    // signer should be the broker public key
-    if (!equal(this.brokerPublicKey, signer)) {
-      return promise.reject(new Error("Invalid signer"));
+      if (!promise) {
+        return;
+      }
+
+      const auth = new Sia(buf.subarray(-96));
+      const signer = auth.readByteArrayN(32);
+      const signature = auth.readByteArrayN(64);
+
+      // signer should be the broker public key
+      if (!equal(this.brokerPublicKey, signer)) {
+        return promise.reject(new Error("Invalid signer"));
+      }
+
+      // verify the signature
+      const message = buf.subarray(0, buf.length - 96);
+      const valid = await ed.verifyAsync(signature, message, signer);
+      if (!valid) {
+        return promise.reject(new Error("Invalid signature"));
+      }
+
+      promise.resolve(buf);
     }
 
-    // verify the signature
-    const message = buf.subarray(0, buf.length - 96);
-    const valid = await ed.verifyAsync(signature, message, signer);
-    if (!valid) {
-      return promise.reject(new Error("Invalid signature"));
-    }
-
-    promise.resolve(buf);
+    throw new Error(`Unknown opcode: ${opcode[0]}`);
   }
 
   wait() {

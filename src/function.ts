@@ -2,6 +2,7 @@ import { Client } from "./client.js";
 import { Sia } from "@timeleap/sia";
 import { uuidv7obj } from "uuidv7";
 import type { FunctionRef } from "./types.js";
+import { OpCodes } from "./lib/opcodes.js";
 
 export class PopulatedFunction {
   private client: Client;
@@ -36,7 +37,7 @@ export class Function {
   constructor(client: Client, ref: FunctionRef) {
     this.client = client;
     this.buffered = Sia.alloc(512)
-      .addByteArrayN(new Uint8Array([6]))
+      .addByteArrayN(new Uint8Array([OpCodes.RPCRequest]))
       .addByteArray8(new Uint8Array(Array.from({ length: 16 }, () => 0)))
       .addAscii(ref.plugin)
       .addAscii(ref.method)
