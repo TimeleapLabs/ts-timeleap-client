@@ -17,6 +17,8 @@ export type PromiseCallbacks = {
 export type Message = {
   signer: Uint8Array;
   signature: Uint8Array;
+  uuid: Uint8Array;
+  timestamp: number;
   topic: string;
   content: Uint8Array;
 };

@@ -1,10 +1,11 @@
 import { Wallet } from "./wallet.js";
-import { Sia } from "@timeleap/sia";
-import { base58, base64 } from "@scure/base";
-import * as ed from "@noble/ed25519";
-import { equal } from "./lib/util/uint8array.js";
 import { Function } from "./function.js";
 import { OpCodes } from "./lib/opcodes.js";
+import { Identity } from "./identity.js";
+
+import { Sia } from "@timeleap/sia";
+import { base64 } from "@scure/base";
+import { uuidv7obj } from "uuidv7";
 
 import type {
   Broker,
@@ -18,7 +19,8 @@ export class Client {
   private wallet: Wallet;
   private connection: WebSocket;
   private queue: Map<string, PromiseCallbacks> = new Map();
-  private brokerPublicKey: Uint8Array;
+  private brokerPublicKey: string;
+  private brokerIdentity?: Identity;
   private textDecoder = new TextDecoder();
   private eventHandlers: Map<string, MessageCallback[]> = new Map();
   private errorHandlers: ErrorCallback[] = [];
@@ -27,7 +29,17 @@ export class Client {
     this.wallet = wallet;
     this.connection = new WebSocket(broker.uri);
     this.connection.onmessage = this.onmessage.bind(this);
-    this.brokerPublicKey = base58.decode(broker.publicKey);
+    this.brokerPublicKey = broker.publicKey;
+  }
+
+  private maybeThrow(error: Error) {
+    if (this.errorHandlers.length === 0) {
+      throw error;
+    }
+
+    for (const handler of this.errorHandlers) {
+      handler(error);
+    }
   }
 
   async onmessage(event: MessageEvent) {
@@ -39,16 +51,7 @@ export class Client {
     if (opcode[0] === OpCodes.Error) {
       const errText = this.textDecoder.decode(buf.subarray(1));
       const err = new Error(errText);
-
-      if (this.errorHandlers.length === 0) {
-        throw err;
-      }
-
-      for (const handler of this.errorHandlers) {
-        handler(err);
-      }
-
-      return;
+      return this.maybeThrow(err);
     }
 
     if (opcode[0] === OpCodes.RPCResponse) {
@@ -60,34 +63,82 @@ export class Client {
         return;
       }
 
-      const auth = new Sia(buf.subarray(-96));
-      const signer = auth.readByteArrayN(32);
-      const signature = auth.readByteArrayN(64);
-
-      // signer should be the broker public key
-      if (!equal(this.brokerPublicKey, signer)) {
-        return promise.reject(new Error("Invalid signer"));
-      }
-
-      // verify the signature
-      const message = buf.subarray(0, buf.length - 96);
-      const valid = await ed.verifyAsync(signature, message, signer);
+      const valid = await this.brokerIdentity!.verify(buf);
       if (!valid) {
         return promise.reject(new Error("Invalid signature"));
       }
 
-      promise.resolve(buf);
+      return promise.resolve(buf);
     }
 
-    throw new Error(`Unknown opcode: ${opcode[0]}`);
+    if (opcode[0] === OpCodes.Broadcast) {
+      const valid = await this.brokerIdentity!.verify(buf);
+      if (!valid) {
+        return this.maybeThrow(new Error("Invalid signature"));
+      }
+
+      const msgBuf = buf.slice(1, buf.length - 96);
+      const sia = new Sia(msgBuf);
+
+      const msgOpcode = sia.readByteArrayN(1);
+      if (msgOpcode[0] !== OpCodes.Message) {
+        return this.maybeThrow(
+          new Error(`Invalid message opcode: ${msgOpcode[0]}`)
+        );
+      }
+
+      const uuid = sia.readByteArray8();
+      const timestamp = sia.readUInt64();
+      const topic = sia.readString16();
+      const content = sia.readByteArray32();
+      const signer = msgBuf.subarray(msgBuf.length - 96, msgBuf.length - 64);
+      const signerIdentity = await Identity.fromPublicKey(signer);
+
+      const msgValid = await signerIdentity.verify(msgBuf);
+      if (!msgValid) {
+        return this.maybeThrow(new Error("Invalid message signature"));
+      }
+
+      const message = {
+        signer,
+        signature: buf.slice(buf.length - 64),
+        uuid,
+        timestamp,
+        topic,
+        content,
+      };
+
+      for (const handler of this.getHandlersForTopic(topic)) {
+        handler(message);
+      }
+
+      return;
+    }
+
+    this.maybeThrow(new Error(`Unknown opcode: ${opcode[0]}`));
   }
 
-  wait() {
-    return new Promise((resolve) => {
+  private getHandlersForTopic(topic: string) {
+    const handlers: MessageCallback[] = [];
+    for (const [key, value] of this.eventHandlers.entries()) {
+      if (topic.startsWith(key)) {
+        handlers.push(...value);
+      }
+    }
+    return handlers;
+  }
+
+  async wait() {
+    await new Promise((resolve, reject) => {
       this.connection.onopen = () => {
+        this.connection.onerror = null;
         resolve(this);
       };
+      this.connection.onerror = (err) => {
+        reject(err);
+      };
     });
+    this.brokerIdentity = await Identity.fromBase58(this.brokerPublicKey);
   }
 
   static async connect(wallet: Wallet, broker: Broker) {
@@ -108,6 +159,22 @@ export class Client {
     });
   }
 
+  async sendWithoutId(sia: Sia) {
+    const signed = await this.wallet.signSia(sia);
+    this.connection.send(signed.toUint8ArrayReference());
+  }
+
+  async broadcast(timestamp: number, topic: string, content: Uint8Array) {
+    const uuid = uuidv7obj().bytes;
+    const sia = Sia.alloc(512)
+      .addByteArrayN(new Uint8Array([OpCodes.Message]))
+      .addByteArray8(uuid)
+      .addUInt64(timestamp)
+      .addString16(topic)
+      .addByteArray32(content);
+    return this.sendWithoutId(sia);
+  }
+
   method(ref: FunctionRef) {
     return new Function(this, ref);
   }
@@ -123,29 +190,45 @@ export class Client {
     }
   }
 
-  subscribe(event: string, handler: MessageCallback) {
-    // TODO: Send subscribe opcode to broker
-    const handlers = this.eventHandlers.get(event) || [];
-    handlers.push(handler);
-    this.eventHandlers.set(event, handlers);
+  private sendSubscribe(topic: string) {
+    const sia = Sia.alloc(512)
+      .addByteArrayN(new Uint8Array([OpCodes.Subscribe]))
+      .addString16(topic);
+    this.sendWithoutId(sia);
   }
 
-  unsubsribe(event: string, handler: MessageCallback) {
-    // TODO: Send unsubscribe opcode to broker
-    const handlers = this.eventHandlers.get(event) || [];
+  private sendUnsubscribe(topic: string) {
+    const sia = Sia.alloc(512)
+      .addByteArrayN(new Uint8Array([OpCodes.Unsubscribe]))
+      .addString16(topic);
+    this.sendWithoutId(sia);
+  }
+
+  subscribe(topic: string, handler: MessageCallback) {
+    const handlers = this.eventHandlers.get(topic) || [];
+    handlers.push(handler);
+    this.eventHandlers.set(topic, handlers);
+    this.sendSubscribe(topic);
+  }
+
+  unsubsribe(topic: string, handler: MessageCallback) {
+    const handlers = this.eventHandlers.get(topic) || [];
     const index = handlers.indexOf(handler);
     if (index !== -1) {
       handlers.splice(index, 1);
     }
+    this.sendUnsubscribe(topic);
   }
 
-  unsubsribeAll(event: string) {
-    // TODO: Send unsubscribe opcode to broker
-    this.eventHandlers.delete(event);
+  unsubsribeAll(topic: string) {
+    this.eventHandlers.delete(topic);
+    this.sendUnsubscribe(topic);
   }
 
   unsubsribeAllEvents() {
-    // TODO: Send unsubscribe opcode to broker
+    for (const topic of this.eventHandlers.keys()) {
+      this.sendUnsubscribe(topic);
+    }
     this.eventHandlers.clear();
   }
 
