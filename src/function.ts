@@ -42,6 +42,8 @@ export class Function {
       .addAscii(ref.plugin)
       .addAscii(ref.method)
       .addUInt64(ref.timeout)
+      .addUInt64(ref.fee.amount)
+      .addAscii(ref.fee.currency)
       .toUint8Array();
   }
 
