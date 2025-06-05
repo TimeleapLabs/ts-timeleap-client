@@ -73,16 +73,24 @@ export class Client {
 
   async send(sia: Sia) {
     const { offset } = sia;
-    const uuidBytes = sia.seek(1).readByteArray8();
+    const uuidBytes = sia.seek(1).readByteArray8();  
     sia.seek(offset);
     const uuid = base64.encode(uuidBytes);
-    const signed = await this.wallet.signSia(sia);
-    return new Promise<Uint8Array>((resolve, reject) => {
+  
+    const innerBytes = sia.toUint8ArrayReference();
+    const opcodeByte = innerBytes[0];
+  
+    const outer = Sia.alloc(innerBytes.length + 512)
+                     .addByteArrayN(new Uint8Array([opcodeByte]))
+                     .addByteArray64(innerBytes);
+  
+    const signedOuter = await this.wallet.signSia(outer);
+  
+    return new Promise((resolve, reject) => {
       this.queue.set(uuid, { resolve, reject });
-      this.connection.send(signed.toUint8ArrayReference());
+      this.connection.send(signedOuter.toUint8ArrayReference());
     });
   }
-
   method(ref: FunctionRef) {
     return new Function(this, ref);
   }
