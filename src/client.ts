@@ -49,7 +49,7 @@ export class Client {
     const opcode = sia.readByteArrayN(1);
 
     if (opcode[0] === OpCodes.Error) {
-      const errText = this.textDecoder.decode(buf.subarray(1));
+      const errText = this.textDecoder.decode(buf.subarray(1, -96));
       const err = new Error(errText);
       return this.maybeThrow(err);
     }

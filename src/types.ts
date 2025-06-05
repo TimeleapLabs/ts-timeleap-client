@@ -3,10 +3,16 @@ export type Broker = {
   publicKey: string;
 };
 
+export type Fee = {
+  amount: number;
+  currency: string;
+};
+
 export type FunctionRef = {
   plugin: string;
   method: string;
   timeout: number;
+  fee: Fee;
 };
 
 export type PromiseCallbacks = {
