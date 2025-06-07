@@ -25,19 +25,19 @@ __metadata:
   dependencies:
     "@noble/ed25519": "npm:^2.2.3"
     "@scure/base": "npm:^1.2.4"
-    "@timeleap/sia": "npm:^2.2.0"
+    "@timeleap/sia": "npm:^2.2.2"
     "@types/node": "npm:^22.10.7"
     typescript: "npm:^5.7.3"
     uuidv7: "npm:^1.0.2"
   languageName: unknown
   linkType: soft
 
-"@timeleap/sia@npm:^2.2.0":
-  version: 2.2.0
-  resolution: "@timeleap/sia@npm:2.2.0"
+"@timeleap/sia@npm:^2.2.2":
+  version: 2.2.2
+  resolution: "@timeleap/sia@npm:2.2.2"
   dependencies:
     utfz-lib: "npm:^0.2.0"
-  checksum: 10c0/cf9b7fdd589eaa3a568bf4de6b4f064a5b4a92d206636b88519ba24f4f6f878b38f1af88b520448ccfc23f62922d80230ded569eae1fe04608211e7646df347d
+  checksum: 10c0/7c27ec7e3e92a3fcbf11c74ba201cd9fc5be9d68841873ac75cf769fb81d70baecce26307765badceffa3f765145a59780be2e96483b186b887dbfb2539ba6b3
   languageName: node
   linkType: hard
 
