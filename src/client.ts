@@ -43,8 +43,11 @@ export class Client {
   }
 
   async onmessage(event: MessageEvent) {
-    const data = event.data as Blob;
-    const buf = new Uint8Array(await data.arrayBuffer());
+    const data = event.data;
+    const buf =
+      data instanceof Uint8Array
+        ? data
+        : new Uint8Array(await (data as Blob).arrayBuffer());
     const sia = new Sia(buf);
     const opcode = sia.readByteArrayN(1);
 
