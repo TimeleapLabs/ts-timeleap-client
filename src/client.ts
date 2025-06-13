@@ -25,7 +25,11 @@ export class Client {
   private eventHandlers: Map<string, MessageCallback[]> = new Map();
   private errorHandlers: ErrorCallback[] = [];
 
+  public broker: Broker;
+  public appId: number = 0;
+
   constructor(wallet: Wallet, broker: Broker) {
+    this.broker = broker;
     this.wallet = wallet;
     this.connection = new WebSocket(broker.uri);
     this.connection.onmessage = this.onmessage.bind(this);
@@ -48,11 +52,17 @@ export class Client {
       data instanceof Uint8Array
         ? data
         : new Uint8Array(await (data as Blob).arrayBuffer());
+
     const sia = new Sia(buf);
     const opcode = sia.readByteArrayN(1);
+    const appId = sia.readUInt64();
+
+    if (appId !== this.appId) {
+      return this.maybeThrow(new Error(`Invalid appId: ${appId}`));
+    }
 
     if (opcode[0] === OpCodes.Error) {
-      const errText = this.textDecoder.decode(buf.subarray(1, -96));
+      const errText = this.textDecoder.decode(buf.subarray(9, -96));
       const err = new Error(errText);
       return this.maybeThrow(err);
     }
@@ -141,7 +151,12 @@ export class Client {
         reject(err);
       };
     });
+
     this.brokerIdentity = await Identity.fromBase58(this.brokerPublicKey);
+
+    const appInfoResp = await fetch(this.broker.uri + "/app");
+    const appInfo = await appInfoResp.json();
+    this.appId = appInfo.appId;
   }
 
   static async connect(wallet: Wallet, broker: Broker) {
@@ -171,6 +186,7 @@ export class Client {
     const uuid = uuidv7obj().bytes;
     const sia = Sia.alloc(512)
       .addByteArrayN(new Uint8Array([OpCodes.Message]))
+      .addUInt64(this.appId)
       .addByteArray8(uuid)
       .addUInt64(timestamp)
       .addString16(topic)
@@ -196,6 +212,7 @@ export class Client {
   private sendSubscribe(topic: string) {
     const sia = Sia.alloc(512)
       .addByteArrayN(new Uint8Array([OpCodes.Subscribe]))
+      .addUInt64(this.appId)
       .addString16(topic);
     this.sendWithoutId(sia);
   }
@@ -203,6 +220,7 @@ export class Client {
   private sendUnsubscribe(topic: string) {
     const sia = Sia.alloc(512)
       .addByteArrayN(new Uint8Array([OpCodes.Unsubscribe]))
+      .addUInt64(this.appId)
       .addString16(topic);
     this.sendWithoutId(sia);
   }

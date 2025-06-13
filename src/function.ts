@@ -38,6 +38,7 @@ export class Function {
     this.client = client;
     this.buffered = Sia.alloc(512)
       .addByteArrayN(new Uint8Array([OpCodes.RPCRequest]))
+      .addUInt64(client.appId)
       .addByteArray8(new Uint8Array(Array.from({ length: 16 }, () => 0)))
       .addAscii(ref.plugin)
       .addAscii(ref.method)
