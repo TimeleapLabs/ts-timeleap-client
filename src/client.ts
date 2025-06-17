@@ -54,20 +54,20 @@ export class Client {
         : new Uint8Array(await (data as Blob).arrayBuffer());
 
     const sia = new Sia(buf);
-    const opcode = sia.readByteArrayN(1);
+    const opcode = sia.readUInt8();
     const appId = sia.readUInt64();
 
     if (appId !== this.appId) {
       return this.maybeThrow(new Error(`Invalid appId: ${appId}`));
     }
 
-    if (opcode[0] === OpCodes.Error) {
+    if (opcode === OpCodes.Error) {
       const errText = this.textDecoder.decode(buf.subarray(9, -96));
       const err = new Error(errText);
       return this.maybeThrow(err);
     }
 
-    if (opcode[0] === OpCodes.RPCResponse) {
+    if (opcode === OpCodes.RPCResponse) {
       const uuidBytes = sia.readByteArray8();
       const uuid = base64.encode(uuidBytes);
       const promise = this.queue.get(uuid);
@@ -84,7 +84,7 @@ export class Client {
       return promise.resolve(buf);
     }
 
-    if (opcode[0] === OpCodes.Broadcast) {
+    if (opcode === OpCodes.Broadcast) {
       const valid = await this.brokerIdentity!.verify(buf);
       if (!valid) {
         return this.maybeThrow(new Error("Invalid signature"));
@@ -128,7 +128,7 @@ export class Client {
       return;
     }
 
-    this.maybeThrow(new Error(`Unknown opcode: ${opcode[0]}`));
+    this.maybeThrow(new Error(`Unknown opcode: ${opcode}`));
   }
 
   private getHandlersForTopic(topic: string) {
@@ -171,7 +171,7 @@ export class Client {
 
   async send(sia: Sia) {
     const { offset } = sia;
-    const uuidBytes = sia.seek(1).readByteArray8();
+    const uuidBytes = sia.seek(9).readByteArray8();
     sia.seek(offset);
     const uuid = base64.encode(uuidBytes);
     const signed = await this.wallet.signSia(sia);

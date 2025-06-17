@@ -21,7 +21,7 @@ export class PopulatedFunction {
     payload.seek(9).addByteArray8(uuid).seek(this.buffered.length);
 
     const response = await this.client.send(payload);
-    const sia = new Sia(new Uint8Array(response.subarray(18)));
+    const sia = new Sia(new Uint8Array(response.subarray(26, -96)));
     const error = sia.readUInt16();
     if (error !== 0) {
       throw new Error(`Error code: ${error}`);
