@@ -18,7 +18,7 @@ export class PopulatedFunction {
     const payload = Sia.alloc(length).embedBytes(this.buffered);
 
     const uuid = uuidv7obj().bytes;
-    payload.seek(1).addByteArray8(uuid).seek(this.buffered.length);
+    payload.seek(9).addByteArray8(uuid).seek(this.buffered.length);
 
     const response = await this.client.send(payload);
     const sia = new Sia(new Uint8Array(response.subarray(18)));
@@ -37,7 +37,7 @@ export class Function {
   constructor(client: Client, ref: FunctionRef) {
     this.client = client;
     this.buffered = Sia.alloc(512)
-      .addByteArrayN(new Uint8Array([OpCodes.RPCRequest]))
+      .addUInt8(OpCodes.RPCRequest)
       .addUInt64(client.appId)
       .addByteArray8(new Uint8Array(Array.from({ length: 16 }, () => 0)))
       .addAscii(ref.plugin)

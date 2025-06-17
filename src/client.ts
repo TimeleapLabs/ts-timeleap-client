@@ -154,7 +154,11 @@ export class Client {
 
     this.brokerIdentity = await Identity.fromBase58(this.brokerPublicKey);
 
-    const appInfoResp = await fetch(this.broker.uri + "/app");
+    const httpUri = this.broker.uri
+      .replace("ws://", "http://")
+      .replace("wss://", "https://");
+
+    const appInfoResp = await fetch(httpUri + "/app");
     const appInfo = await appInfoResp.json();
     this.appId = appInfo.appId;
   }
