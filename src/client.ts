@@ -13,7 +13,10 @@ import type {
   FunctionRef,
   MessageCallback,
   PromiseCallbacks,
+  StreamChunk,
 } from "./types.js";
+
+import { EventEmitter } from "events";
 
 export class Client {
   private wallet: Wallet;
@@ -24,6 +27,8 @@ export class Client {
   private textDecoder = new TextDecoder();
   private eventHandlers: Map<string, MessageCallback[]> = new Map();
   private errorHandlers: ErrorCallback[] = [];
+
+  private streamEmitters: Map<string, EventEmitter> = new Map();
 
   public broker: Broker;
   public appId: number = 0;
@@ -128,7 +133,69 @@ export class Client {
       return;
     }
 
+    if (opcode === OpCodes.RPCStream) {
+      const streamPayloadBuf = buf.subarray(9, buf.length - 96);
+      const streamSia = new Sia(streamPayloadBuf);
+
+      const idBytes = streamSia.readByteArray8();
+      const streamIdBytes = streamSia.readByteArray8();
+      const streamType = streamSia.readString8();
+      const streamIndex = streamSia.readUInt64();
+      const finished = streamSia.readBool();
+      const data = streamSia.readByteArray32();
+
+      const streamId = base64.encode(streamIdBytes);
+
+      const emitter = this.streamEmitters.get(streamId);
+
+      if (emitter) {
+        const chunk: StreamChunk = {
+          streamId,
+          type: streamType,
+          index: Number(streamIndex),
+          data: data,
+          finished: finished,
+        };
+
+        emitter.emit("data", chunk);
+
+        if (finished) {
+          emitter.emit("end");
+          this.streamEmitters.delete(streamId);
+        }
+      } else {
+        console.warn(
+          `Received stream chunk for unknown or closed stream ID: ${streamId}`
+        );
+      }
+      return;
+    }
+
     this.maybeThrow(new Error(`Unknown opcode: ${opcode}`));
+  }
+
+  async requestStream(topic: string): Promise<string> {
+    const streamUuid = uuidv7obj().bytes;
+    const streamIdBase64 = base64.encode(streamUuid);
+
+    const sia = Sia.alloc(512)
+      .addByteArrayN(new Uint8Array([OpCodes.RPCStream]))
+      .addUInt64(this.appId)
+      .addByteArray8(streamUuid)
+      .addString16(topic);
+
+    this.sendWithoutId(sia);
+
+    return streamIdBase64;
+  }
+
+  getStream(streamId: string): EventEmitter {
+    let emitter = this.streamEmitters.get(streamId);
+    if (!emitter) {
+      emitter = new EventEmitter();
+      this.streamEmitters.set(streamId, emitter);
+    }
+    return emitter;
   }
 
   private getHandlersForTopic(topic: string) {

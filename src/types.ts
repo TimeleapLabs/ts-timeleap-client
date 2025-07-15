@@ -29,5 +29,14 @@ export type Message = {
   content: Uint8Array;
 };
 
+export interface StreamChunk {
+  streamId: string;
+  type: string; 
+  index: number;
+  data: Uint8Array;
+  finished: boolean;
+}
+
+
 export type ErrorCallback = (err: Error) => void;
 export type MessageCallback = (msg: Message) => void;
