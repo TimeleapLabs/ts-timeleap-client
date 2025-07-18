@@ -1,0 +1,14 @@
+schema EmptyArgs {}
+
+schema GeneratedImageResponse {
+  uuid    byte8
+  error?  uint16
+  image?  byte32
+}
+
+
+plugin timeleap.stream.test as SimpleImagePlugin {
+  method streamImage(timeout = 5000, fee= 0, currency = "TLP") EmptyArgs returns {
+    image byte32
+  }
+}
