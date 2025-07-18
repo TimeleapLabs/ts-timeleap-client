@@ -174,21 +174,6 @@ export class Client {
     this.maybeThrow(new Error(`Unknown opcode: ${opcode}`));
   }
 
-  async requestStream(topic: string): Promise<string> {
-    const streamUuid = uuidv7obj().bytes;
-    const streamIdBase64 = base64.encode(streamUuid);
-
-    const sia = Sia.alloc(512)
-      .addByteArrayN(new Uint8Array([OpCodes.RPCStream]))
-      .addUInt64(this.appId)
-      .addByteArray8(streamUuid)
-      .addString16(topic);
-
-    this.sendWithoutId(sia);
-
-    return streamIdBase64;
-  }
-
   getStream(streamId: string): EventEmitter {
     let emitter = this.streamEmitters.get(streamId);
     if (!emitter) {
