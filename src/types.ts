@@ -15,9 +15,10 @@ export type FunctionRef = {
   fee: Fee;
 };
 
-export type PromiseCallbacks = {
+export type ResolveMechanism = {
   resolve: (data: any) => void;
   reject: (err: Error) => void;
+  controller?: ReadableStreamDefaultController<Uint8Array>;
 };
 
 export type Message = {

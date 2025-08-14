@@ -12,13 +12,14 @@ import type {
   ErrorCallback,
   FunctionRef,
   MessageCallback,
-  PromiseCallbacks,
+  ResolveMechanism,
 } from "./types.js";
 
+// TODO: We need to clean up the queue
 export class Client {
   private wallet: Wallet;
   private connection: WebSocket;
-  private queue: Map<string, PromiseCallbacks> = new Map();
+  private queue: Map<string, ResolveMechanism> = new Map();
   private brokerPublicKey: string;
   private brokerIdentity?: Identity;
   private textDecoder = new TextDecoder();
@@ -33,6 +34,8 @@ export class Client {
     this.wallet = wallet;
     this.connection = new WebSocket(broker.uri);
     this.connection.onmessage = this.onmessage.bind(this);
+    this.connection.onerror = this.onerror.bind(this);
+    this.connection.onclose = this.onclose.bind(this);
     this.brokerPublicKey = broker.publicKey;
   }
 
@@ -44,6 +47,28 @@ export class Client {
     for (const handler of this.errorHandlers) {
       handler(error);
     }
+  }
+
+  getResolve(uuid: Uint8Array) {
+    return this.queue.get(base64.encode(uuid));
+  }
+
+  private reconnect() {
+    this.connection = new WebSocket(this.broker.uri);
+    this.connection.onmessage = this.onmessage.bind(this);
+    this.connection.onerror = this.onerror.bind(this);
+  }
+
+  private onclose(event: CloseEvent) {
+    console.error("WebSocket closed:", event);
+    setTimeout(() => {
+      this.reconnect();
+    }, 1000);
+  }
+
+  private onerror(event: Event) {
+    console.error("WebSocket error:", event);
+    this.connection.close();
   }
 
   async onmessage(event: MessageEvent) {
@@ -82,6 +107,25 @@ export class Client {
       }
 
       return promise.resolve(buf);
+    }
+
+    if (opcode === OpCodes.RPCStream) {
+      const uuidBytes = sia.readByteArray8();
+      const uuid = base64.encode(uuidBytes);
+      const stream = this.queue.get(uuid);
+
+      if (!stream || !stream.controller) {
+        return this.maybeThrow(new Error("Stream not found"));
+      }
+
+      const valid = await this.brokerIdentity!.verify(buf);
+      if (!valid) {
+        console.error("RPCStream verification failed:", { uuid, buf });
+        return stream.controller.error(new Error("Invalid signature"));
+      }
+
+      // Enqueue the stream data (excluding the header and signature)
+      return stream.controller.enqueue(buf.slice(26, -96));
     }
 
     if (opcode === OpCodes.Broadcast) {
@@ -170,6 +214,10 @@ export class Client {
   }
 
   async send(sia: Sia) {
+    if (!this.connection || this.connection.readyState !== WebSocket.OPEN) {
+      throw new Error("WebSocket is not connected");
+    }
+
     const { offset } = sia;
     const uuidBytes = sia.seek(9).readByteArray8();
     sia.seek(offset);
@@ -179,6 +227,25 @@ export class Client {
       this.queue.set(uuid, { resolve, reject });
       this.connection.send(signed.toUint8ArrayReference());
     });
+  }
+
+  async stream(sia: Sia) {
+    const { offset } = sia;
+    const uuidBytes = sia.seek(9).readByteArray8();
+    sia.seek(offset);
+    const uuid = base64.encode(uuidBytes);
+    const signed = await this.wallet.signSia(sia);
+
+    const { promise, resolve, reject } = Promise.withResolvers<Uint8Array>();
+
+    const stream = new ReadableStream<Uint8Array>({
+      start: async (controller) => {
+        this.queue.set(uuid, { resolve, reject, controller });
+        this.connection.send(signed.toUint8ArrayReference());
+      },
+    });
+
+    return { stream, promise };
   }
 
   async sendWithoutId(sia: Sia) {
