@@ -6,6 +6,7 @@ import { Identity } from "./identity.js";
 import { Sia } from "@timeleap/sia";
 import { base64 } from "@scure/base";
 import { uuidv7obj } from "uuidv7";
+import { backOff, BackoffOptions } from "exponential-backoff";
 
 import type {
   Broker,
@@ -14,6 +15,15 @@ import type {
   MessageCallback,
   ResolveMechanism,
 } from "./types.js";
+
+export type Options = {
+  backoff: BackoffOptions;
+};
+
+const defaultBackoffOptions: BackoffOptions = {
+  delayFirstAttempt: true,
+  numOfAttempts: 10,
+};
 
 // TODO: We need to clean up the queue
 export class Client {
@@ -25,11 +35,12 @@ export class Client {
   private textDecoder = new TextDecoder();
   private eventHandlers: Map<string, MessageCallback[]> = new Map();
   private errorHandlers: ErrorCallback[] = [];
+  private options: Options;
 
   public broker: Broker;
   public appId: number = 0;
 
-  constructor(wallet: Wallet, broker: Broker) {
+  constructor(wallet: Wallet, broker: Broker, options: Options) {
     this.broker = broker;
     this.wallet = wallet;
     this.connection = new WebSocket(broker.uri);
@@ -37,6 +48,7 @@ export class Client {
     this.connection.onerror = this.onerror.bind(this);
     this.connection.onclose = this.onclose.bind(this);
     this.brokerPublicKey = broker.publicKey;
+    this.options = options;
   }
 
   private maybeThrow(error: Error) {
@@ -53,17 +65,22 @@ export class Client {
     return this.queue.get(base64.encode(uuid));
   }
 
-  private reconnect() {
+  private async reconnect() {
     this.connection = new WebSocket(this.broker.uri);
     this.connection.onmessage = this.onmessage.bind(this);
     this.connection.onerror = this.onerror.bind(this);
   }
 
+  private async reconnectWithBackoff() {
+    await backOff(
+      this.reconnect.bind(this),
+      this.options.backoff || defaultBackoffOptions
+    );
+  }
+
   private onclose(event: CloseEvent) {
     console.error("WebSocket closed:", event);
-    setTimeout(() => {
-      this.reconnect();
-    }, 1000);
+    this.reconnectWithBackoff();
   }
 
   private onerror(event: Event) {
@@ -207,8 +224,8 @@ export class Client {
     this.appId = appInfo.appId;
   }
 
-  static async connect(wallet: Wallet, broker: Broker) {
-    const client = new Client(wallet, broker);
+  static async connect(wallet: Wallet, broker: Broker, options: Options) {
+    const client = new Client(wallet, broker, options);
     await client.wait();
     return client;
   }

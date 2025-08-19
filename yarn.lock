@@ -27,6 +27,7 @@ __metadata:
     "@scure/base": "npm:^1.2.4"
     "@timeleap/sia": "npm:^2.2.2"
     "@types/node": "npm:^22.10.7"
+    exponential-backoff: "npm:^3.1.2"
     typescript: "npm:^5.7.3"
     uuidv7: "npm:^1.0.2"
   languageName: unknown
@@ -47,6 +48,13 @@ __metadata:
   dependencies:
     undici-types: "npm:~6.20.0"
   checksum: 10c0/c941b4689dfc4044b64a5f601306cbcb0c7210be853ba378a5dd44137898c45accedd796ee002ad9407024cac7ecaf5049304951cb1d80ce3d7cebbbae56f20e
+  languageName: node
+  linkType: hard
+
+"exponential-backoff@npm:^3.1.2":
+  version: 3.1.2
+  resolution: "exponential-backoff@npm:3.1.2"
+  checksum: 10c0/d9d3e1eafa21b78464297df91f1776f7fbaa3d5e3f7f0995648ca5b89c069d17055033817348d9f4a43d1c20b0eab84f75af6991751e839df53e4dfd6f22e844
   languageName: node
   linkType: hard
 
