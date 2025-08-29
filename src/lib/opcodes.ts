@@ -1,4 +1,4 @@
-export const OpCodes = {
+export const OpCodes = Object.freeze({
   Feedback: 0,
   Error: 1,
 
@@ -14,4 +14,7 @@ export const OpCodes = {
   RPCRequest: 9,
   RPCResponse: 10,
   RPCStream: 11,
-};
+
+  Ping: 12,
+  Pong: 13,
+});
