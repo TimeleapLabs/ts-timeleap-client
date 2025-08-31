@@ -36,6 +36,10 @@ export class Client {
   private eventHandlers: Map<string, MessageCallback[]> = new Map();
   private errorHandlers: ErrorCallback[] = [];
   private options: Options;
+  private lastMessageAt = Date.now();
+  private heartbeatTimer?: ReturnType<typeof setInterval>;
+  private readonly HEARTBEAT_MS = 20_000;
+  private readonly STALE_AFTER_MS = 45_000;
 
   public broker: Broker;
   public appId: number = 0;
@@ -44,11 +48,10 @@ export class Client {
     this.broker = broker;
     this.wallet = wallet;
     this.connection = new WebSocket(broker.uri);
-    this.connection.onmessage = this.onmessage.bind(this);
-    this.connection.onerror = this.onerror.bind(this);
-    this.connection.onclose = this.onclose.bind(this);
+    this.bindSocket(this.connection);
     this.brokerPublicKey = broker.publicKey;
     this.options = options;
+    this.installWakeWatchers();
   }
 
   private maybeThrow(error: Error) {
@@ -66,9 +69,7 @@ export class Client {
   }
 
   private async reconnect() {
-    this.connection = new WebSocket(this.broker.uri);
-    this.connection.onmessage = this.onmessage.bind(this);
-    this.connection.onerror = this.onerror.bind(this);
+    this.bindSocket(new WebSocket(this.broker.uri));
   }
 
   private async reconnectWithBackoff() {
@@ -78,8 +79,30 @@ export class Client {
     );
   }
 
+  private bindSocket(ws: WebSocket) {
+    ws.onopen = this.onopen;
+    ws.onmessage = this.onmessage.bind(this);
+    ws.onerror = this.onerror.bind(this);
+    ws.onclose = this.onclose.bind(this);
+    this.connection = ws;
+  }
+
+  private onopen = async () => {
+    try {
+      for (const topic of this.eventHandlers.keys()) {
+        this.sendSubscribe(topic);
+      }
+
+      this.startHeartbeat();
+    } catch (e) {
+      this.maybeThrow(e as Error);
+      this.connection?.close();
+    }
+  };
+
   private onclose(event: CloseEvent) {
     console.error("WebSocket closed:", event);
+    this.stopHeartbeat();
     this.reconnectWithBackoff();
   }
 
@@ -88,7 +111,64 @@ export class Client {
     this.connection.close();
   }
 
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      const now = Date.now();
+
+      if (
+        !this.connection ||
+        this.connection.readyState !== WebSocket.OPEN ||
+        now - this.lastMessageAt > this.STALE_AFTER_MS
+      ) {
+        try {
+          this.connection?.close();
+        } catch {}
+        this.reconnectWithBackoff();
+        return;
+      }
+
+      try {
+        this.connection.send(Buffer.from([OpCodes.Ping]));
+      } catch {
+        try {
+          this.connection.close();
+        } catch {}
+      }
+    }, this.HEARTBEAT_MS);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = undefined;
+    }
+  }
+
+  private ensureConnected = () => {
+    const open =
+      this.connection && this.connection.readyState === WebSocket.OPEN;
+    const fresh = Date.now() - this.lastMessageAt < this.STALE_AFTER_MS;
+    if (!open || !fresh) {
+      try {
+        this.connection?.close();
+      } catch {}
+      this.reconnectWithBackoff();
+    }
+  };
+
+  private installWakeWatchers() {
+    const wake = () => this.ensureConnected();
+    addEventListener("visibilitychange", () => {
+      if (!document.hidden) wake();
+    });
+    addEventListener("pageshow", wake); // BFCache restores
+    addEventListener("focus", wake);
+    addEventListener("online", wake);
+  }
+
   async onmessage(event: MessageEvent) {
+    this.lastMessageAt = Date.now();
     const data = event.data;
     const buf =
       data instanceof Uint8Array
@@ -189,6 +269,10 @@ export class Client {
       return;
     }
 
+    if (opcode === OpCodes.Pong) {
+      return; // Do nothing
+    }
+
     this.maybeThrow(new Error(`Unknown opcode: ${opcode}`));
   }
 
@@ -232,7 +316,7 @@ export class Client {
 
   async send(sia: Sia) {
     if (!this.connection || this.connection.readyState !== WebSocket.OPEN) {
-      throw new Error("WebSocket is not connected");
+      await this.reconnect();
     }
 
     const { offset } = sia;
@@ -247,6 +331,10 @@ export class Client {
   }
 
   async stream(sia: Sia) {
+    if (!this.connection || this.connection.readyState !== WebSocket.OPEN) {
+      await this.reconnect();
+    }
+
     const { offset } = sia;
     const uuidBytes = sia.seek(9).readByteArray8();
     sia.seek(offset);
