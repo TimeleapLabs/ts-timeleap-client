@@ -25,6 +25,10 @@ const defaultBackoffOptions: BackoffOptions = {
   numOfAttempts: 10,
 };
 
+const defaultOptions = {
+  backoff: defaultBackoffOptions,
+};
+
 // TODO: We need to clean up the queue
 export class Client {
   private wallet: Wallet;
@@ -47,7 +51,11 @@ export class Client {
   public broker: Broker;
   public appId: number = 0;
 
-  constructor(wallet: Wallet, broker: Broker, options: Options) {
+  constructor(
+    wallet: Wallet,
+    broker: Broker,
+    options: Options = defaultOptions
+  ) {
     this.broker = broker;
     this.wallet = wallet;
     this.connection = new WebSocket(broker.uri);
@@ -55,6 +63,13 @@ export class Client {
     this.brokerPublicKey = broker.publicKey;
     this.options = options;
     this.installWakeWatchers();
+    this.defaultOptions();
+  }
+
+  private defaultOptions() {
+    if (!this.options.backoff) {
+      this.options.backoff = defaultBackoffOptions;
+    }
   }
 
   private maybeThrow(error: Error) {
