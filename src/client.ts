@@ -38,6 +38,8 @@ export class Client {
   private options: Options;
   private lastMessageAt = Date.now();
   private heartbeatTimer?: ReturnType<typeof setInterval>;
+  private resolveConnected?: () => void;
+  private rejectConnected?: (reason: any) => void;
   private readonly HEARTBEAT_MS = 20_000;
   private readonly STALE_AFTER_MS = 45_000;
 
@@ -69,7 +71,11 @@ export class Client {
   }
 
   private async reconnect() {
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    this.resolveConnected = resolve;
+    this.rejectConnected = reject;
     this.bindSocket(new WebSocket(this.broker.uri));
+    await promise;
   }
 
   private async reconnectWithBackoff() {
@@ -94,6 +100,8 @@ export class Client {
       }
 
       this.startHeartbeat();
+      this.resolveConnected?.();
+      this.resetConnectPromise();
     } catch (e) {
       this.maybeThrow(e as Error);
       this.connection?.close();
@@ -104,11 +112,20 @@ export class Client {
     console.error("WebSocket closed:", event);
     this.stopHeartbeat();
     this.reconnectWithBackoff();
+    this.rejectConnected?.(event);
+    this.resetConnectPromise();
   }
 
   private onerror(event: Event) {
     console.error("WebSocket error:", event);
     this.connection.close();
+    this.rejectConnected?.(event);
+    this.resetConnectPromise();
+  }
+
+  private resetConnectPromise() {
+    this.resolveConnected = undefined;
+    this.rejectConnected = undefined;
   }
 
   private startHeartbeat() {
@@ -316,7 +333,7 @@ export class Client {
 
   async send(sia: Sia) {
     if (!this.connection || this.connection.readyState !== WebSocket.OPEN) {
-      await this.reconnect();
+      await this.reconnectWithBackoff();
     }
 
     const { offset } = sia;
@@ -332,7 +349,7 @@ export class Client {
 
   async stream(sia: Sia) {
     if (!this.connection || this.connection.readyState !== WebSocket.OPEN) {
-      await this.reconnect();
+      await this.reconnectWithBackoff();
     }
 
     const { offset } = sia;
