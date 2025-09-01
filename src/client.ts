@@ -40,6 +40,7 @@ export class Client {
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private resolveConnected?: () => void;
   private rejectConnected?: (reason: any) => void;
+  private connectPromise?: Promise<void>;
   private readonly HEARTBEAT_MS = 20_000;
   private readonly STALE_AFTER_MS = 45_000;
 
@@ -71,9 +72,15 @@ export class Client {
   }
 
   private async reconnect() {
+    if (this.connectPromise) {
+      await this.connectPromise;
+      return;
+    }
+
     const { promise, resolve, reject } = Promise.withResolvers<void>();
     this.resolveConnected = resolve;
     this.rejectConnected = reject;
+    this.connectPromise = promise;
     this.bindSocket(new WebSocket(this.broker.uri));
     await promise;
   }
