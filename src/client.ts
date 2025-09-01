@@ -61,7 +61,7 @@ export class Client {
     this.connection = new WebSocket(broker.uri);
     this.bindSocket(this.connection);
     this.brokerPublicKey = broker.publicKey;
-    this.options = options;
+    this.options = options || {};
     this.installWakeWatchers();
     this.defaultOptions();
   }
@@ -347,7 +347,11 @@ export class Client {
     this.appId = appInfo.appId;
   }
 
-  static async connect(wallet: Wallet, broker: Broker, options: Options) {
+  static async connect(
+    wallet: Wallet,
+    broker: Broker,
+    options: Options = defaultOptions
+  ) {
     const client = new Client(wallet, broker, options);
     await client.wait();
     return client;
