@@ -1,6 +1,6 @@
 {
   "name": "@timeleap/client",
-  "version": "1.7.3",
+  "version": "1.7.4",
   "packageManager": "yarn@4.5.2",
   "devDependencies": {
     "@types/node": "^22.10.7",
