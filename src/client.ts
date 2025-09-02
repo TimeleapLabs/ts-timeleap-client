@@ -6,7 +6,6 @@ import { Identity } from "./identity.js";
 import { Sia } from "@timeleap/sia";
 import { base64 } from "@scure/base";
 import { uuidv7obj } from "uuidv7";
-import { backOff, BackoffOptions } from "exponential-backoff";
 
 import type {
   Broker,
@@ -15,19 +14,7 @@ import type {
   MessageCallback,
   ResolveMechanism,
 } from "./types.js";
-
-export type Options = {
-  backoff: BackoffOptions;
-};
-
-const defaultBackoffOptions: BackoffOptions = {
-  delayFirstAttempt: true,
-  numOfAttempts: 10,
-};
-
-const defaultOptions = {
-  backoff: defaultBackoffOptions,
-};
+import { delay } from "./lib/util/time.js";
 
 // TODO: We need to clean up the queue
 export class Client {
@@ -39,37 +26,22 @@ export class Client {
   private textDecoder = new TextDecoder();
   private eventHandlers: Map<string, MessageCallback[]> = new Map();
   private errorHandlers: ErrorCallback[] = [];
-  private options: Options;
   private lastMessageAt = Date.now();
   private heartbeatTimer?: ReturnType<typeof setInterval>;
-  private resolveConnected?: () => void;
-  private rejectConnected?: (reason: any) => void;
-  private connectPromise?: Promise<void>;
   private readonly HEARTBEAT_MS = 20_000;
   private readonly STALE_AFTER_MS = 45_000;
+  private readonly FIRST_RECONNECT_DELAY_MS = 100;
+  private readonly MAX_RECONNECT_DELAY_MS = 30_000;
 
   public broker: Broker;
   public appId: number = 0;
 
-  constructor(
-    wallet: Wallet,
-    broker: Broker,
-    options: Options = defaultOptions
-  ) {
+  constructor(wallet: Wallet, broker: Broker) {
     this.broker = broker;
     this.wallet = wallet;
     this.connection = new WebSocket(broker.uri);
     this.bindSocket(this.connection);
     this.brokerPublicKey = broker.publicKey;
-    this.options = options || {};
-    this.installWakeWatchers();
-    this.defaultOptions();
-  }
-
-  private defaultOptions() {
-    if (!this.options.backoff) {
-      this.options.backoff = defaultBackoffOptions;
-    }
   }
 
   private maybeThrow(error: Error) {
@@ -86,33 +58,6 @@ export class Client {
     return this.queue.get(base64.encode(uuid));
   }
 
-  private async reconnect() {
-    if (this.connectPromise) {
-      await this.connectPromise;
-      return;
-    }
-
-    const { promise, resolve, reject } = Promise.withResolvers<void>();
-    this.resolveConnected = resolve;
-    this.rejectConnected = reject;
-    this.connectPromise = promise;
-    this.bindSocket(new WebSocket(this.broker.uri));
-    await promise;
-    this.resetConnectPromise();
-  }
-
-  private async reconnectWithBackoff() {
-    if (this.connectPromise) {
-      await this.connectPromise;
-      return;
-    }
-
-    await backOff(
-      this.reconnect.bind(this),
-      this.options.backoff || defaultBackoffOptions
-    );
-  }
-
   private bindSocket(ws: WebSocket) {
     ws.onopen = this.onopen;
     ws.onmessage = this.onmessage.bind(this);
@@ -126,10 +71,7 @@ export class Client {
       for (const topic of this.eventHandlers.keys()) {
         this.sendSubscribe(topic);
       }
-
       this.startHeartbeat();
-      this.resolveConnected?.();
-      this.resetConnectPromise();
     } catch (e) {
       this.maybeThrow(e as Error);
       this.connection?.close();
@@ -139,21 +81,10 @@ export class Client {
   private onclose(event: CloseEvent) {
     console.error("WebSocket closed:", event);
     this.stopHeartbeat();
-    if (this.rejectConnected) {
-      this.rejectConnected?.(event);
-      this.resetConnectPromise();
-    } else {
-      this.reconnectWithBackoff();
-    }
   }
 
   private onerror(event: Event) {
     console.error("WebSocket error:", event);
-  }
-
-  private resetConnectPromise() {
-    this.resolveConnected = undefined;
-    this.rejectConnected = undefined;
   }
 
   private startHeartbeat() {
@@ -164,8 +95,7 @@ export class Client {
       const open = this.connection?.readyState === WebSocket.OPEN;
 
       if (!open || stale) {
-        this.close();
-        return;
+        return this.close();
       }
 
       try {
@@ -190,16 +120,6 @@ export class Client {
       this.close();
     }
   };
-
-  private installWakeWatchers() {
-    const wake = () => this.ensureConnected();
-    addEventListener("visibilitychange", () => {
-      if (!document.hidden) wake();
-    });
-    addEventListener("pageshow", wake); // BFCache restores
-    addEventListener("focus", wake);
-    addEventListener("online", wake);
-  }
 
   async onmessage(event: MessageEvent) {
     this.lastMessageAt = Date.now();
@@ -345,19 +265,34 @@ export class Client {
     this.appId = appInfo.appId;
   }
 
-  static async connect(
-    wallet: Wallet,
-    broker: Broker,
-    options: Options = defaultOptions
-  ) {
-    const client = new Client(wallet, broker, options);
+  static async connect(wallet: Wallet, broker: Broker) {
+    const client = new Client(wallet, broker);
     await client.wait();
     return client;
   }
 
+  private async reconnect() {
+    if (this.connection && this.connection.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    let currentDelay = this.FIRST_RECONNECT_DELAY_MS;
+    while (this.connection && this.connection.readyState !== WebSocket.OPEN) {
+      try {
+        await delay(currentDelay);
+        this.connection = new WebSocket(this.broker.uri);
+        await this.wait();
+        return;
+      } catch (error) {
+        console.error("WebSocket reconnection error:", error);
+        currentDelay = Math.min(currentDelay * 2, this.MAX_RECONNECT_DELAY_MS);
+      }
+    }
+  }
+
   async send(sia: Sia) {
     if (!this.connection || this.connection.readyState !== WebSocket.OPEN) {
-      await this.reconnectWithBackoff();
+      await this.reconnect();
     }
 
     const { offset } = sia;
@@ -373,7 +308,7 @@ export class Client {
 
   async stream(sia: Sia) {
     if (!this.connection || this.connection.readyState !== WebSocket.OPEN) {
-      await this.reconnectWithBackoff();
+      await this.reconnect();
     }
 
     const { offset } = sia;
