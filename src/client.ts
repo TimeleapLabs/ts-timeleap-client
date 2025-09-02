@@ -133,9 +133,9 @@ export class Client {
   private onclose(event: CloseEvent) {
     console.error("WebSocket closed:", event);
     this.stopHeartbeat();
-    this.reconnectWithBackoff();
     this.rejectConnected?.(event);
     this.resetConnectPromise();
+    this.reconnectWithBackoff();
   }
 
   private onerror(event: Event) {
