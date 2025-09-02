@@ -68,9 +68,6 @@ export class Client {
 
   private onopen = async () => {
     try {
-      for (const topic of this.eventHandlers.keys()) {
-        this.sendSubscribe(topic);
-      }
       this.startHeartbeat();
     } catch (e) {
       console.error("WebSocket connection error:", e);
@@ -238,15 +235,28 @@ export class Client {
   async wait() {
     await new Promise<void>((resolve, reject) => {
       const onOpen = () => {
-        this.connection.removeEventListener("error", onError);
+        console.log("WebSocket connection opened");
+        cleanup();
         resolve();
       };
       const onError = (ev: Event) => {
-        this.connection.removeEventListener("open", onOpen);
+        console.error("WebSocket connection error:", ev);
+        cleanup();
         reject(ev);
+      };
+      const onClose = (ev: Event) => {
+        console.log("WebSocket connection closed:", ev);
+        cleanup();
+        reject(ev);
+      };
+      const cleanup = () => {
+        this.connection.removeEventListener("open", onOpen);
+        this.connection.removeEventListener("error", onError);
+        this.connection.removeEventListener("close", onClose);
       };
       this.connection.addEventListener("open", onOpen, { once: true });
       this.connection.addEventListener("error", onError, { once: true });
+      this.connection.addEventListener("close", onClose, { once: true });
     });
 
     this.brokerIdentity = await Identity.fromBase58(this.brokerPublicKey);
@@ -279,6 +289,7 @@ export class Client {
         this.connection = new WebSocket(this.broker.uri);
         this.bindSocket(this.connection);
         await this.wait();
+        this.resubscribeAll();
         console.log("WebSocket reconnected successfully");
         return;
       } catch (error) {
@@ -398,6 +409,12 @@ export class Client {
       this.sendUnsubscribe(topic);
     }
     this.eventHandlers.clear();
+  }
+
+  private resubscribeAll() {
+    for (const topic of this.eventHandlers.keys()) {
+      this.sendSubscribe(topic);
+    }
   }
 
   close() {
