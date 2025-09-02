@@ -2,6 +2,7 @@ import { Wallet } from "./wallet.js";
 import { Function } from "./function.js";
 import { OpCodes } from "./lib/opcodes.js";
 import { Identity } from "./identity.js";
+import { delay } from "./lib/util/time.js";
 
 import { Sia } from "@timeleap/sia";
 import { base64 } from "@scure/base";
@@ -14,7 +15,6 @@ import type {
   MessageCallback,
   ResolveMechanism,
 } from "./types.js";
-import { delay } from "./lib/util/time.js";
 
 // TODO: We need to clean up the queue
 export class Client {
@@ -73,6 +73,7 @@ export class Client {
       }
       this.startHeartbeat();
     } catch (e) {
+      console.error("WebSocket connection error:", e);
       this.maybeThrow(e as Error);
       this.connection?.close();
     }
@@ -95,12 +96,14 @@ export class Client {
       const open = this.connection?.readyState === WebSocket.OPEN;
 
       if (!open || stale) {
+        console.warn("WebSocket connection is stale or closed");
         return this.close();
       }
 
       try {
         this.connection.send(Buffer.from([OpCodes.Ping]));
-      } catch {
+      } catch (error) {
+        console.error("WebSocket heartbeat error:", error);
         this.close();
       }
     }, this.HEARTBEAT_MS);
@@ -112,14 +115,6 @@ export class Client {
       this.heartbeatTimer = undefined;
     }
   }
-
-  private ensureConnected = () => {
-    const open = this.connection?.readyState === WebSocket.OPEN;
-    const fresh = Date.now() - this.lastMessageAt < this.STALE_AFTER_MS;
-    if (!open || !fresh) {
-      this.close();
-    }
-  };
 
   async onmessage(event: MessageEvent) {
     this.lastMessageAt = Date.now();
@@ -279,6 +274,7 @@ export class Client {
     let currentDelay = this.FIRST_RECONNECT_DELAY_MS;
     while (this.connection && this.connection.readyState !== WebSocket.OPEN) {
       try {
+        console.warn("Attempting WebSocket reconnection...");
         await delay(currentDelay);
         this.connection = new WebSocket(this.broker.uri);
         await this.wait();
@@ -291,13 +287,12 @@ export class Client {
   }
 
   async send(sia: Sia) {
-    if (!this.connection || this.connection.readyState !== WebSocket.OPEN) {
-      await this.reconnect();
-    }
+    await this.reconnect();
 
     const { offset } = sia;
     const uuidBytes = sia.seek(9).readByteArray8();
     sia.seek(offset);
+
     const uuid = base64.encode(uuidBytes);
     const signed = await this.wallet.signSia(sia);
     return new Promise<Uint8Array>((resolve, reject) => {
@@ -307,16 +302,14 @@ export class Client {
   }
 
   async stream(sia: Sia) {
-    if (!this.connection || this.connection.readyState !== WebSocket.OPEN) {
-      await this.reconnect();
-    }
+    await this.reconnect();
 
     const { offset } = sia;
     const uuidBytes = sia.seek(9).readByteArray8();
     sia.seek(offset);
+
     const uuid = base64.encode(uuidBytes);
     const signed = await this.wallet.signSia(sia);
-
     const { promise, resolve, reject } = Promise.withResolvers<Uint8Array>();
 
     const stream = new ReadableStream<Uint8Array>({
