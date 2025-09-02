@@ -221,8 +221,12 @@ export class Client {
 
     const sia = new Sia(buf);
     const opcode = sia.readUInt8();
-    const appId = sia.readUInt64();
 
+    if (opcode === OpCodes.Pong) {
+      return; // Do nothing
+    }
+
+    const appId = sia.readUInt64();
     if (appId !== this.appId) {
       return this.maybeThrow(new Error(`Invalid appId: ${appId}`));
     }
@@ -311,10 +315,6 @@ export class Client {
       }
 
       return;
-    }
-
-    if (opcode === OpCodes.Pong) {
-      return; // Do nothing
     }
 
     this.maybeThrow(new Error(`Unknown opcode: ${opcode}`));
