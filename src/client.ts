@@ -102,11 +102,15 @@ export class Client {
   }
 
   private async reconnectWithBackoff() {
+    if (this.connectPromise) {
+      await this.connectPromise;
+      return;
+    }
+
     await backOff(
       this.reconnect.bind(this),
       this.options.backoff || defaultBackoffOptions
     );
-    this.resetConnectPromise();
   }
 
   private bindSocket(ws: WebSocket) {
@@ -145,9 +149,6 @@ export class Client {
 
   private onerror(event: Event) {
     console.error("WebSocket error:", event);
-    this.connection.close();
-    this.rejectConnected?.(event);
-    this.resetConnectPromise();
   }
 
   private resetConnectPromise() {
@@ -159,25 +160,18 @@ export class Client {
     this.stopHeartbeat();
     this.heartbeatTimer = setInterval(() => {
       const now = Date.now();
+      const stale = now - this.lastMessageAt > this.STALE_AFTER_MS;
+      const open = this.connection?.readyState === WebSocket.OPEN;
 
-      if (
-        !this.connection ||
-        this.connection.readyState !== WebSocket.OPEN ||
-        now - this.lastMessageAt > this.STALE_AFTER_MS
-      ) {
-        try {
-          this.connection?.close();
-        } catch {}
-        this.reconnectWithBackoff();
+      if (!open || stale) {
+        this.close();
         return;
       }
 
       try {
         this.connection.send(Buffer.from([OpCodes.Ping]));
       } catch {
-        try {
-          this.connection.close();
-        } catch {}
+        this.close();
       }
     }, this.HEARTBEAT_MS);
   }
@@ -190,14 +184,10 @@ export class Client {
   }
 
   private ensureConnected = () => {
-    const open =
-      this.connection && this.connection.readyState === WebSocket.OPEN;
+    const open = this.connection?.readyState === WebSocket.OPEN;
     const fresh = Date.now() - this.lastMessageAt < this.STALE_AFTER_MS;
     if (!open || !fresh) {
-      try {
-        this.connection?.close();
-      } catch {}
-      this.reconnectWithBackoff();
+      this.close();
     }
   };
 
@@ -331,14 +321,17 @@ export class Client {
   }
 
   async wait() {
-    await new Promise((resolve, reject) => {
-      this.connection.onopen = () => {
-        this.connection.onerror = null;
-        resolve(this);
+    await new Promise<void>((resolve, reject) => {
+      const onOpen = () => {
+        this.connection.removeEventListener("error", onError);
+        resolve();
       };
-      this.connection.onerror = (err) => {
-        reject(err);
+      const onError = (ev: Event) => {
+        this.connection.removeEventListener("open", onOpen);
+        reject(ev);
       };
+      this.connection.addEventListener("open", onOpen, { once: true });
+      this.connection.addEventListener("error", onError, { once: true });
     });
 
     this.brokerIdentity = await Identity.fromBase58(this.brokerPublicKey);
