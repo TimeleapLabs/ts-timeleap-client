@@ -277,7 +277,9 @@ export class Client {
         console.warn("Attempting WebSocket reconnection...");
         await delay(currentDelay);
         this.connection = new WebSocket(this.broker.uri);
+        this.bindSocket(this.connection);
         await this.wait();
+        console.log("WebSocket reconnected successfully");
         return;
       } catch (error) {
         console.error("WebSocket reconnection error:", error);
