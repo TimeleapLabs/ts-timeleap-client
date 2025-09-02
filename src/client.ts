@@ -98,6 +98,7 @@ export class Client {
     this.connectPromise = promise;
     this.bindSocket(new WebSocket(this.broker.uri));
     await promise;
+    this.resetConnectPromise();
   }
 
   private async reconnectWithBackoff() {
@@ -105,6 +106,7 @@ export class Client {
       this.reconnect.bind(this),
       this.options.backoff || defaultBackoffOptions
     );
+    this.resetConnectPromise();
   }
 
   private bindSocket(ws: WebSocket) {
@@ -133,9 +135,12 @@ export class Client {
   private onclose(event: CloseEvent) {
     console.error("WebSocket closed:", event);
     this.stopHeartbeat();
-    this.rejectConnected?.(event);
-    this.resetConnectPromise();
-    this.reconnectWithBackoff();
+    if (this.rejectConnected) {
+      this.rejectConnected?.(event);
+      this.resetConnectPromise();
+    } else {
+      this.reconnectWithBackoff();
+    }
   }
 
   private onerror(event: Event) {
