@@ -32,7 +32,7 @@ export class PopulatedFunction {
   private stripAndCheckForErrors(response: Uint8Array) {
     const { error, sia } = this.stripAndGetErrors(response);
     if (error !== 0) {
-      throw new Error(`Error code: ${error}`);
+      throw new Error(`Error code: ${error}`, { cause: error });
     }
     return sia;
   }
@@ -56,8 +56,10 @@ export class PopulatedFunction {
           const { error, sia } = this.stripAndGetErrors(response);
           const { controller } = this.client.getResolve(uuid) || {};
           if (error !== 0) {
-            controller?.error(new Error(`Error code: ${error}`));
-            reject(new Error(`Error code: ${error}`));
+            controller?.error(
+              new Error(`Error code: ${error}`, { cause: error })
+            );
+            reject(new Error(`Error code: ${error}`, { cause: error }));
           } else {
             try {
               controller?.close();
